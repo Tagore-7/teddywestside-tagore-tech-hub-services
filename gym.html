@@ -8,6 +8,107 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 
+<script>
+  const startBtn = document.getElementById("startBtn");
+  const endBtn = document.getElementById("endBtn");
+  const clearBtn = document.getElementById("clearBtn");
+  const statusEl = document.getElementById("status");
+  const lastSessionEl = document.getElementById("lastSession");
+
+  const KEY = "gym_session_current";
+  const HISTORY_KEY = "gym_session_history"; // store last few
+
+  function nowISO() {
+    return new Date().toISOString();
+  }
+
+  function pretty(dt) {
+    const d = new Date(dt);
+    return d.toLocaleString();
+  }
+
+  function loadCurrent() {
+    const raw = localStorage.getItem(KEY);
+    return raw ? JSON.parse(raw) : null;
+  }
+
+  function saveCurrent(obj) {
+    localStorage.setItem(KEY, JSON.stringify(obj));
+  }
+
+  function clearCurrent() {
+    localStorage.removeItem(KEY);
+  }
+
+  function loadHistory() {
+    const raw = localStorage.getItem(HISTORY_KEY);
+    return raw ? JSON.parse(raw) : [];
+  }
+
+  function saveHistory(arr) {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(arr));
+  }
+
+  function render() {
+    const current = loadCurrent();
+    const history = loadHistory();
+
+    if (!current) {
+      statusEl.textContent = "Status: not started yet.";
+    } else if (current.startedAt && !current.endedAt) {
+      statusEl.textContent = `Status: active (started ${pretty(current.startedAt)})`;
+    } else if (current.startedAt && current.endedAt) {
+      statusEl.textContent = `Status: finished (ended ${pretty(current.endedAt)})`;
+    }
+
+    if (history.length === 0) {
+      lastSessionEl.textContent = "";
+    } else {
+      const last = history[0];
+      const mins = Math.round((new Date(last.endedAt) - new Date(last.startedAt)) / 60000);
+      lastSessionEl.textContent =
+        `Last session: ${pretty(last.startedAt)} → ${pretty(last.endedAt)} (${mins} min)`;
+    }
+
+    // Button enable/disable
+    const active = current && current.startedAt && !current.endedAt;
+    startBtn.disabled = !!active;
+    endBtn.disabled = !active;
+  }
+
+  startBtn.addEventListener("click", () => {
+    const current = loadCurrent();
+    if (current && current.startedAt && !current.endedAt) return;
+
+    saveCurrent({ startedAt: nowISO(), endedAt: null });
+    render();
+  });
+
+  endBtn.addEventListener("click", () => {
+    const current = loadCurrent();
+    if (!current || !current.startedAt || current.endedAt) return;
+
+    current.endedAt = nowISO();
+
+    // push into history (keep last 10)
+    const history = loadHistory();
+    history.unshift({ startedAt: current.startedAt, endedAt: current.endedAt });
+    saveHistory(history.slice(0, 10));
+
+    clearCurrent();
+    render();
+  });
+
+  clearBtn.addEventListener("click", () => {
+    localStorage.removeItem(KEY);
+    localStorage.removeItem(HISTORY_KEY);
+    render();
+  });
+
+  render();
+</script>
+
+  
 <body>
   <header class="wrap">
     <div class="brand">
@@ -25,18 +126,26 @@
     </p>
   </header>
 
-  <main class="wrap">
-    <section class="note">
-      <p>
-        This page is live. Next we’ll add two buttons:
-        <strong>Start session</strong> and <strong>End session</strong>.
-      </p>
-      <p>
-        For the first working version, we’ll store data locally (no cloud, no login),
-        then later we can decide if we want a shared campus view.
-      </p>
-    </section>
-  </main>
+<main class="wrap">
+  <section class="card" style="margin-bottom:14px;">
+    <h2 style="margin-top:0;">My Gym Session</h2>
+    <p class="sub" style="margin-top:0;">
+      This stores your session locally in your browser (on your device).
+    </p>
+
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:12px;">
+      <button id="startBtn" class="btn">Start session</button>
+      <button id="endBtn" class="btn">End session</button>
+      <button id="clearBtn" class="btn btn-ghost">Clear local data</button>
+    </div>
+
+    <div class="note" style="margin-top:14px;">
+      <p id="status" style="margin:0;">Status: not started yet.</p>
+      <p id="lastSession" style="margin:8px 0 0; color: rgba(233,233,238,0.75);"></p>
+    </div>
+  </section>
+</main>
+
 
   <footer class="wrap foot">
     <p>Built by TeddyWestSide–Tagore.</p>
