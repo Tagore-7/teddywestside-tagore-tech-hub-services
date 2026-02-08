@@ -124,3 +124,27 @@ h1 {
   color: var(--muted);
   font-size: 13px;
 }
+
+
+.btn {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: #1a1f2d;
+  color: var(--text);
+  padding: 10px 14px;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.btn:hover { transform: translateY(-1px); }
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-ghost {
+  background: transparent;
+}
+
