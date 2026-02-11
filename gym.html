@@ -44,12 +44,33 @@
         <p id="debug" style="margin:8px 0 0; color: rgba(233,233,238,0.6); font-size: 12px;"></p>
       </div>
     </section>
+    <section class="card" style="margin-bottom:14px;">
+      <h2 style="margin-top:0;">Gym Availability (Shared)</h2>
+      <p class="sub" style="margin-top:0;">
+        Based on anonymous start times from everyone using the app.
+      </p>
+    
+      <div id="gridLegend" class="sub" style="margin-top:10px;">
+        <span style="margin-right:12px;">🟩 free</span>
+        <span style="margin-right:12px;">🟨 medium</span>
+        <span>🟥 busy</span>
+      </div>
+    
+      <div id="hourGrid" style="
+        margin-top:12px;
+        display:grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap:10px;
+      "></div>
+    
+      <p id="gridMsg" class="sub" style="margin-top:12px;"></p>
+    </section>
+    
   </main>
 
   <footer class="wrap foot">
     <p>Built by TeddyWestSide–Tagore.</p>
   </footer>
-
   <script>
     window.addEventListener("DOMContentLoaded", () => {
       const startBtn = document.getElementById("startBtn");
@@ -58,16 +79,21 @@
       const statusEl = document.getElementById("status");
       const lastSessionEl = document.getElementById("lastSession");
       const debugEl = document.getElementById("debug");
+      const hourGrid = document.getElementById("hourGrid");
+      const gridMsg = document.getElementById("gridMsg");
 
+  
       function debug(msg) { debugEl.textContent = msg; }
+      function pretty(dt) { return new Date(dt).toLocaleString(); }
+  
+      // Element check
+      if (!startBtn || !endBtn || !clearBtn || !statusEl || !lastSessionEl || !debugEl || !hourGrid || !gridMsg) {
+  console.error("Missing elements");
+  return;
+}
 
-      // If any element is missing, show it clearly.
-      if (!startBtn || !endBtn || !clearBtn || !statusEl || !lastSessionEl || !debugEl) {
-        debug("ERROR: One or more elements not found. Check IDs in gym.html.");
-        return;
-      }
-
-      // Check localStorage availability (sometimes blocked in strict modes)
+  
+      // localStorage check
       try {
         localStorage.setItem("__gym_test__", "1");
         localStorage.removeItem("__gym_test__");
@@ -79,13 +105,10 @@
         clearBtn.disabled = true;
         return;
       }
-
-      const KEY = "gym_session_current";
-      const HISTORY_KEY = "gym_session_history";
-
-      function nowISO() { return new Date().toISOString(); }
-      function pretty(dt) { return new Date(dt).toLocaleString(); }
-
+  
+      const API_BASE = "https://gym-api.teddywestside.workers.dev";
+      const KEY = "gym_session_current"; // { session_id, startedAt }
+  
       function loadCurrent() {
         const raw = localStorage.getItem(KEY);
         return raw ? JSON.parse(raw) : null;
@@ -93,68 +116,182 @@
       function saveCurrent(obj) { localStorage.setItem(KEY, JSON.stringify(obj)); }
       function clearCurrent() { localStorage.removeItem(KEY); }
 
-      function loadHistory() {
-        const raw = localStorage.getItem(HISTORY_KEY);
-        return raw ? JSON.parse(raw) : [];
-      }
-      function saveHistory(arr) {
-        localStorage.setItem(HISTORY_KEY, JSON.stringify(arr));
-      }
+      function bucketColor(count) {
+  // super simple thresholds for now
+  if (count <= 1) return { label: "free", cls: "free" };
+  if (count <= 4) return { label: "medium", cls: "med" };
+  return { label: "busy", cls: "busy" };
+}
 
+async function loadGrid() {
+  gridMsg.textContent = "Loading shared data…";
+  hourGrid.innerHTML = "";
+
+  try {
+    // still fetch last 24h (enough data to fill "today" view)
+    const r = await fetch(`${API_BASE}/stats?mode=hour_of_day`);
+    const data = await r.json();
+    if (!r.ok || !data.ok) throw new Error(data.error || `HTTP ${r.status}`);
+
+    // Map of UTC hour key -> count
+    const map = new Map((data.rows || []).map(x => [Number(x.hour), Number(x.starts || 0)]));
+
+// 12 AM -> 11 PM (always same order)
+for (let h = 0; h < 24; h++) {
+  const count = map.get(h) || 0;
+  const b = bucketColor(count);
+
+  const cell = document.createElement("div");
+  cell.style.border = "1px solid #2a2f3a";
+  cell.style.borderRadius = "12px";
+  cell.style.padding = "10px";
+  cell.style.background =
+    b.cls === "free" ? "rgba(40, 140, 80, 0.18)"
+  : b.cls === "med"  ? "rgba(200, 170, 60, 0.18)"
+  :                   "rgba(200, 60, 60, 0.18)";
+
+  const label = new Date(2000, 0, 1, h).toLocaleTimeString([], {
+    hour: "numeric",
+    hour12: true,
+  });
+
+  cell.innerHTML = `
+    <div style="font-size:12px; color: rgba(233,233,238,0.75);">${label}</div>
+    <div style="font-size:18px; font-weight:700; margin-top:4px;">${count}</div>
+    <div style="font-size:12px; color: rgba(233,233,238,0.6); margin-top:2px;">${b.label}</div>
+  `;
+  hourGrid.appendChild(cell);
+}
+
+gridMsg.textContent = "Counts = total session starts in that hour (all-time).";
+
+
+    // Build 24 cells in local-day order: 12 AM -> 11 PM
+    const today = new Date();
+    const y = today.getFullYear();
+    const m = today.getMonth();
+    const d0 = today.getDate();
+
+    for (let h = 0; h < 24; h++) {
+      // Local "today at hour h"
+      const localHour = new Date(y, m, d0, h, 0, 0, 0);
+
+      // Convert that local hour moment to the UTC key your backend uses
+      const utcKey =
+        localHour.getUTCFullYear() + "-" +
+        String(localHour.getUTCMonth() + 1).padStart(2, "0") + "-" +
+        String(localHour.getUTCDate()).padStart(2, "0") + "T" +
+        String(localHour.getUTCHours()).padStart(2, "0") + ":00Z";
+
+      const count = map.get(utcKey) || 0;
+      const b = bucketColor(count);
+
+      const cell = document.createElement("div");
+      cell.style.border = "1px solid #2a2f3a";
+      cell.style.borderRadius = "12px";
+      cell.style.padding = "10px";
+      cell.style.background = b.cls === "free" ? "rgba(40, 140, 80, 0.18)"
+                        : b.cls === "med"  ? "rgba(200, 170, 60, 0.18)"
+                        :                   "rgba(200, 60, 60, 0.18)";
+
+      // label like "12 AM", "1 AM", ...
+      const label = localHour.toLocaleTimeString([], { hour: "numeric", hour12: true });
+
+      cell.innerHTML = `
+        <div style="font-size:12px; color: rgba(233,233,238,0.75);">${label}</div>
+        <div style="font-size:18px; font-weight:700; margin-top:4px;">${count}</div>
+        <div style="font-size:12px; color: rgba(233,233,238,0.6); margin-top:2px;">${b.label}</div>
+      `;
+      hourGrid.appendChild(cell);
+    }
+
+    gridMsg.textContent = "Counts = number of sessions started in each hour (today).";
+  } catch (e) {
+    gridMsg.textContent = `Could not load shared data: ${e.message}`;
+  }
+}
+
+
+  
       function render() {
         const current = loadCurrent();
-        const history = loadHistory();
-
-        if (!current) {
+        const active = current?.startedAt && current?.session_id;
+  
+        if (!active) {
           statusEl.textContent = "Status: not started yet.";
-        } else if (current.startedAt && !current.endedAt) {
+        } else {
           statusEl.textContent = `Status: active (started ${pretty(current.startedAt)})`;
-        } else {
-          statusEl.textContent = "Status: not started yet.";
         }
-
-        if (history.length === 0) {
-          lastSessionEl.textContent = "";
-        } else {
-          const last = history[0];
-          const mins = Math.max(0, Math.round((new Date(last.endedAt) - new Date(last.startedAt)) / 60000));
-          lastSessionEl.textContent =
-            `Last session: ${pretty(last.startedAt)} → ${pretty(last.endedAt)} (${mins} min)`;
-        }
-
-        const active = current && current.startedAt && !current.endedAt;
+  
+        // keep blank for now (we'll show real grid next)
+        lastSessionEl.textContent = "";
+  
         startBtn.disabled = !!active;
         endBtn.disabled = !active;
+  
 
-        debug("JS loaded ✅ (if buttons still do nothing, tell me what this debug line says).");
       }
-
-      startBtn.addEventListener("click", () => {
-        saveCurrent({ startedAt: nowISO(), endedAt: null });
-        render();
+  
+      startBtn.addEventListener("click", async () => {
+        startBtn.disabled = true;
+        debug("Starting session…");
+  
+        try {
+          const r = await fetch(`${API_BASE}/start`, { method: "POST" });
+          const data = await r.json();
+  
+          if (!r.ok || !data.ok) throw new Error(data.error || `HTTP ${r.status}`);
+  
+          saveCurrent({ session_id: data.session_id, startedAt: data.started_at });
+          debug("Started ✅");
+        } catch (e) {
+          debug(`Start failed: ${e.message}`);
+        } finally {
+          render();
+          loadGrid()
+        }
       });
-
-      endBtn.addEventListener("click", () => {
+  
+      endBtn.addEventListener("click", async () => {
         const current = loadCurrent();
-        if (!current || !current.startedAt) return;
-
-        const endedAt = nowISO();
-        const history = loadHistory();
-        history.unshift({ startedAt: current.startedAt, endedAt });
-        saveHistory(history.slice(0, 10));
-
-        clearCurrent();
-        render();
+        if (!current?.session_id) {
+          debug("No active session found.");
+          return;
+        }
+  
+        endBtn.disabled = true;
+        debug("Ending session…");
+  
+        try {
+          const r = await fetch(`${API_BASE}/end`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ session_id: current.session_id }),
+          });
+          const data = await r.json();
+  
+          if (!r.ok || !data.ok) throw new Error(data.error || `HTTP ${r.status}`);
+  
+          clearCurrent();
+          debug(`Ended ✅ (${data.duration_sec}s)`);
+        } catch (e) {
+          debug(`End failed: ${e.message}`);
+        } finally {
+          render();
+          loadGrid()        }
       });
-
+  
       clearBtn.addEventListener("click", () => {
-        localStorage.removeItem(KEY);
-        localStorage.removeItem(HISTORY_KEY);
-        render();
-      });
+  clearCurrent();
+  render();
+  loadGrid();
+});
 
-      render();
+  
+      debug("JS loaded ✅");
+render();
+loadGrid();
     });
-  </script>
+  </script>  
 </body>
 </html>
