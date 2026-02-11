@@ -1,0 +1,12 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Wrangler / Cloudflare local state
+.wrangler/
+
+# OS junk
+.DS_Store
+Thumbs.db

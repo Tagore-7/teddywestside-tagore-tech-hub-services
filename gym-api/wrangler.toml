@@ -1,0 +1,7 @@
+name = "gym-api"
+main = "src/index.js"
+compatibility_date = "2026-02-08"
+[[d1_databases]]
+binding = "gym_db"
+database_name = "gym_db"
+database_id = "6e8d1f88-c69e-4eef-a9eb-fb81a4e3f721"
